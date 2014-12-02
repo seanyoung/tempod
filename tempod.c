@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <math.h>
+#include <time.h>
+#include <syslog.h>
 
 /* lib */
 #include <evhttp.h>
@@ -32,8 +34,39 @@ static unsigned pressure, humidity;
 static int hci_socket;
 static struct event *g_evtime;
 static struct event_base *g_base;
+static char *g_statsfile = "/var/log/tempod/measurements.csv";
 
 static void ble_read(evutil_socket_t fd, short event, void *arg);
+
+static void logit()
+{
+	// log it
+	time_t now = time(NULL);
+	char buf[100];
+	size_t size;
+
+	size = snprintf(buf, sizeof(buf), "%ld,%.1f,%d,%d\n", now, temperature,humidity,pressure);
+
+	int fd = TEMP_FAILURE_RETRY(open(g_statsfile, O_APPEND|O_CREAT|O_WRONLY|O_CLOEXEC, 0644));
+	if (fd == -1) {
+		syslog(LOG_WARNING, "failed to write %s: %m", g_statsfile);
+		return;
+	}
+	
+	size_t off = 0;
+	while (size) {
+		ssize_t ret = TEMP_FAILURE_RETRY(write(fd, buf + off, size));
+		if (ret == -1) {
+			syslog(LOG_WARNING, "failed to write %s: %m", g_statsfile);
+			TEMP_FAILURE_RETRY(close(fd));
+			return;
+		}
+		off += ret;
+		size -= ret;
+	}
+
+	TEMP_FAILURE_RETRY(close(fd));
+}
 
 static int ble_setup()
 {
@@ -119,6 +152,8 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 
 	// stop scanning
 	hci_le_set_scan_enable(hci_socket, 0x00, 1, 1000);
+
+	logit();
 }
 
 static void process_req(struct evhttp_request *req, void *arg)
@@ -135,8 +170,7 @@ static void process_req(struct evhttp_request *req, void *arg)
 				"\"pressure\": %u }\n",
 			temperature, humidity, pressure);
 
-        evhttp_add_header(req->output_headers, "Server", SERVER_NAME);
-
+	evhttp_add_header(req->output_headers, "Server", SERVER_NAME);
 	evhttp_add_header(req->output_headers, "Content-Type", "application/json");
 	evhttp_add_header(req->output_headers, "Connection", "close");
 	evhttp_send_reply(req, HTTP_OK, "OK", buf);
@@ -175,7 +209,9 @@ int main(int argc, char *argv[])
 	g_evtime = evtimer_new(g_base, ble_start_scan, NULL);
 	ble_start_scan(0, 0, NULL);
 
-	event_base_dispatch(g_base);
+        openlog("tempod", LOG_ODELAY | LOG_PID, LOG_USER);
+        event_base_dispatch(g_base);
+        closelog();
 
 	return 0;
 }
