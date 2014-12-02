@@ -25,6 +25,8 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
+#define SERVER_NAME     "tempod/0.1-git" GIT_COMMIT
+
 static double temperature = INFINITY;
 static unsigned pressure, humidity;
 static int hci_socket;
@@ -132,6 +134,8 @@ static void process_req(struct evhttp_request *req, void *arg)
 				"\"humidity\": %u, "
 				"\"pressure\": %u }\n",
 			temperature, humidity, pressure);
+
+        evhttp_add_header(req->output_headers, "Server", SERVER_NAME);
 
 	evhttp_add_header(req->output_headers, "Content-Type", "application/json");
 	evhttp_add_header(req->output_headers, "Connection", "close");
