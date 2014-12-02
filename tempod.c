@@ -195,7 +195,7 @@ int create_http(int port)
 
 int main(int argc, char *argv[])
 {
-	int rc, port = -1;
+	int rc, port = 80;
 	bool daemonize = true;
 
 	opterr = 0;
