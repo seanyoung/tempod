@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <math.h>
@@ -24,7 +25,8 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
-static double temperature = INFINITY, pressure, humidity;
+static double temperature = INFINITY;
+static unsigned pressure, humidity;
 static int hci_socket;
 static struct event *g_evtime;
 static struct event_base *g_base;
@@ -55,10 +57,14 @@ static int ble_setup()
 
 	dev_info.dev_id = hci_device_id;
 	
-#if 0
-	ioctl(hciSocket, HCIGETDEVINFO, &dev_info);
-	currentAdapterState = hci_test_bit(HCI_UP, &dev_info.flags);
-#endif
+	ioctl(hci_socket, HCIGETDEVINFO, &dev_info);
+	if (!hci_test_bit(HCI_UP, &dev_info.flags)) {
+		if (ioctl(hci_socket, HCIDEVUP, hci_device_id)) {
+			printf("error: hci device up: %m\n");
+			close(hci_socket);
+			return -1;
+		}
+	}
 
 	if (hci_le_set_scan_parameters(hci_socket, 0x01, htobs(0x0010), htobs(0x0010), 0x00, 0, 1000) < 0) {
 		printf("error: Cannot set le scan parameters: %m");
@@ -66,8 +72,8 @@ static int ble_setup()
 		return -1;
 	}
 
-        struct event *event = event_new(g_base, hci_socket,
-                                EV_READ | EV_PERSIST, ble_read, NULL);
+	struct event *event = event_new(g_base, hci_socket,
+				EV_READ | EV_PERSIST, ble_read, NULL);
 
 	event_add(event, NULL);
 
@@ -79,7 +85,7 @@ static void ble_start_scan(evutil_socket_t fd, short event, void *arg)
 	hci_le_set_scan_enable(hci_socket, 0x00, 1, 1000);
 	hci_le_set_scan_enable(hci_socket, 0x01, 1, 1000);
 
-        evtimer_add(g_evtime, &((struct timeval) { 60, 0 }));
+	evtimer_add(g_evtime, &((struct timeval) { 60, 0 }));
 }
 
 static void ble_read(evutil_socket_t fd, short event, void *arg)
@@ -104,8 +110,8 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 				leAdvertisingInfo->data[1] != 0xff)
 		return;
 
-	temperature = (float)leAdvertisingInfo->data[5] / 10.0f;
-	humidity =  (float)leAdvertisingInfo->data[11];
+	temperature = (double)leAdvertisingInfo->data[5] / 10.0;
+	humidity =  leAdvertisingInfo->data[11];
 	pressure =  leAdvertisingInfo->data[12] +
 			leAdvertisingInfo->data[13] * 256;
 
@@ -123,49 +129,49 @@ static void process_req(struct evhttp_request *req, void *arg)
 	struct evbuffer *buf = evbuffer_new();
 
 	evbuffer_add_printf(buf, "{ \"temperature\": %.1f, "
-				"\"humidity\": %.1f, "
-				"\"pressure\": %.1f }\n",
+				"\"humidity\": %u, "
+				"\"pressure\": %u }\n",
 			temperature, humidity, pressure);
 
-        evhttp_add_header(req->output_headers, "Content-Type", "application/json");
-        evhttp_add_header(req->output_headers, "Connection", "close");
-        evhttp_send_reply(req, HTTP_OK, "OK", buf);
-        evbuffer_free(buf);
+	evhttp_add_header(req->output_headers, "Content-Type", "application/json");
+	evhttp_add_header(req->output_headers, "Connection", "close");
+	evhttp_send_reply(req, HTTP_OK, "OK", buf);
+	evbuffer_free(buf);
 }
 
 int create_http(int port)
 {
-        struct evhttp *httpd = evhttp_new(g_base);
-        if (httpd == NULL)
-                return ENOMEM;
+	struct evhttp *httpd = evhttp_new(g_base);
+	if (httpd == NULL)
+		return ENOMEM;
 
 	if (evhttp_bind_socket(httpd, "::", port)) {
-                evhttp_free(httpd);
-                return errno;
-        }
+		evhttp_free(httpd);
+		return errno;
+	}
 
-        evhttp_set_cb(httpd, "/", process_req, NULL);
+	evhttp_set_cb(httpd, "/", process_req, NULL);
 
-        return 0;
+	return 0;
 }
 
 int main(int argc, char *argv[])
 {
-        g_base = event_init();
+	g_base = event_init();
 
 	if (ble_setup())
 		exit(EXIT_FAILURE);
 
-        int rc = create_http(9443);
-        if (rc) {
-                printf("error: failed to create http server: %s\n", strerror(rc));
-                exit(EXIT_FAILURE);
-        }
+	int rc = create_http(9443);
+	if (rc) {
+		printf("error: failed to create http server: %s\n", strerror(rc));
+		exit(EXIT_FAILURE);
+	}
 
 	g_evtime = evtimer_new(g_base, ble_start_scan, NULL);
 	ble_start_scan(0, 0, NULL);
 
-        event_base_dispatch(g_base);
+	event_base_dispatch(g_base);
 
 	return 0;
 }
