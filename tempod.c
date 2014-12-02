@@ -27,7 +27,7 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
-#define SERVER_NAME     "tempod/0.1-git" GIT_COMMIT
+#define SERVER_NAME	"tempod/0.1-git" GIT_COMMIT
 
 static double temperature = INFINITY;
 static unsigned pressure, humidity;
@@ -195,12 +195,43 @@ int create_http(int port)
 
 int main(int argc, char *argv[])
 {
+	int rc, port = -1;
+	bool daemonize = true;
+
+	opterr = 0;
+
+	while ((rc = getopt(argc, argv, "hdp:")) != -1) {
+		switch (rc) {
+		case 'd':
+			daemonize = false;
+			break;
+		case 'p':
+			port = atoi(optarg);
+			if (port <= 0 || port >= 65536) {
+				fprintf(stderr, "error: %s is not a valid port",
+								optarg);
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case 'h':
+			printf("Usage: %s [-d] [-p port] [-h]\n", argv[0]);
+			exit(EXIT_SUCCESS);
+		case '?':
+			fprintf(stderr, "error: invalid argument -%c\n", optopt);
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (optind < argc) {
+		fprintf(stderr, "error: invalid argument '%s'\n", argv[optind]);
+		exit(EXIT_FAILURE);
+	}
 	g_base = event_init();
 
 	if (ble_setup())
 		exit(EXIT_FAILURE);
 
-	int rc = create_http(9443);
+	rc = create_http(port);
 	if (rc) {
 		printf("error: failed to create http server: %s\n", strerror(rc));
 		exit(EXIT_FAILURE);
@@ -209,9 +240,14 @@ int main(int argc, char *argv[])
 	g_evtime = evtimer_new(g_base, ble_start_scan, NULL);
 	ble_start_scan(0, 0, NULL);
 
-        openlog("tempod", LOG_ODELAY | LOG_PID, LOG_USER);
-        event_base_dispatch(g_base);
-        closelog();
+	if (daemonize && daemon(0, 0)) {
+		printf("error: failed to fork: %m\n");
+		exit(EXIT_FAILURE);
+	}
+
+	openlog("tempod", LOG_ODELAY | LOG_PID, LOG_USER);
+	event_base_dispatch(g_base);
+	closelog();
 
 	return 0;
 }
