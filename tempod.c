@@ -35,6 +35,7 @@ static int hci_socket;
 static struct event *g_evtime;
 static struct event_base *g_base;
 static char *g_statsfile = "/var/log/tempod/measurements.csv";
+static bool foundtempod = true;
 
 static void ble_read(evutil_socket_t fd, short event, void *arg);
 
@@ -81,6 +82,7 @@ static int ble_setup()
 		return -1;
 	}
 
+	/* FIXME: should we set non-blocking mode on hci socket? */
 	struct hci_filter new_filter;
 
 	hci_filter_clear(&new_filter);
@@ -117,6 +119,10 @@ static int ble_setup()
 
 static void ble_start_scan(evutil_socket_t fd, short event, void *arg)
 {
+	if (!foundtempod) 
+		syslog(LOG_WARNING, "warning: no response from tempod device");
+
+	foundtempod = false;
 	hci_le_set_scan_enable(hci_socket, 0x00, 1, 1000);
 	hci_le_set_scan_enable(hci_socket, 0x01, 1, 1000);
 
@@ -129,9 +135,12 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 	int hciEventLen;
 	evt_le_meta_event *leMetaEvent;
 	le_advertising_info *leAdvertisingInfo;
-
-
-	hciEventLen = read(hci_socket, hciEventBuf, sizeof(hciEventBuf));
+	
+	hciEventLen = TEMP_FAILURE_RETRY(read(hci_socket, hciEventBuf, sizeof(hciEventBuf)));
+	if (hciEventLen == -1) {
+		syslog(LOG_WARNING, "failed to read hci device: %m");
+		return;
+	}
 	leMetaEvent = (evt_le_meta_event *)(hciEventBuf + (1 + HCI_EVENT_HDR_SIZE));
 	hciEventLen -= (1 + HCI_EVENT_HDR_SIZE);	
 
@@ -153,6 +162,7 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 	// stop scanning
 	hci_le_set_scan_enable(hci_socket, 0x00, 1, 1000);
 
+	foundtempod = true;
 	logit();
 }
 
