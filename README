@@ -1,0 +1,10 @@
+BlueMeastro Tempo Environment Monitor reader
+
+Run this on a linux machine with a bluetooth interface. It will do an
+bluetooth le scan every 60 seconds, and retrieve the temperature,
+humidity and pressure from the result. This is will be logged to a file
+/var/log/tempod/measurements.csv and you can retrieve the current values
+over http. By default it will listen on port 80; you can specify a 
+different value on the command line with -p 2000.
+
+
