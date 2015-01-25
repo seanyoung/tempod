@@ -82,6 +82,8 @@ static int ble_setup()
 		return -1;
 	}
 
+	ioctl(hci_socket, HCIDEVDOWN, hci_device_id);
+
 	/* FIXME: should we set non-blocking mode on hci socket? */
 	struct hci_filter new_filter;
 
@@ -89,18 +91,11 @@ static int ble_setup()
 	hci_filter_set_ptype(HCI_EVENT_PKT, &new_filter);
 	hci_filter_set_event(EVT_LE_META_EVENT, &new_filter);
 	setsockopt(hci_socket, SOL_HCI, HCI_FILTER, &new_filter, sizeof(new_filter));
-	struct hci_dev_info dev_info;
-	memset(&dev_info, 0, sizeof(dev_info));
 
-	dev_info.dev_id = hci_device_id;
-	
-	ioctl(hci_socket, HCIGETDEVINFO, &dev_info);
-	if (!hci_test_bit(HCI_UP, &dev_info.flags)) {
-		if (ioctl(hci_socket, HCIDEVUP, hci_device_id)) {
-			printf("error: hci device up: %m\n");
-			close(hci_socket);
-			return -1;
-		}
+	if (ioctl(hci_socket, HCIDEVUP, hci_device_id)) {
+		printf("error: hci device up: %m\n");
+		close(hci_socket);
+		return -1;
 	}
 
 	if (hci_le_set_scan_parameters(hci_socket, 0x01, htobs(0x0010), htobs(0x0010), 0x00, 0, 1000) < 0) {
@@ -138,8 +133,8 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 	
 	hciEventLen = TEMP_FAILURE_RETRY(read(hci_socket, hciEventBuf, sizeof(hciEventBuf)));
 	if (hciEventLen == -1) {
-		syslog(LOG_WARNING, "failed to read hci device: %m");
-		return;
+		syslog(LOG_ERR, "failed to read hci device: %m");
+		exit(EXIT_FAILURE);
 	}
 	leMetaEvent = (evt_le_meta_event *)(hciEventBuf + (1 + HCI_EVENT_HDR_SIZE));
 	hciEventLen -= (1 + HCI_EVENT_HDR_SIZE);	
