@@ -36,6 +36,7 @@ static struct event *g_evtime;
 static struct event_base *g_base;
 static char *g_statsfile = "/var/log/tempod/measurements.csv";
 static bool foundtempod = true;
+static time_t g_lastlog;
 
 static void ble_read(evutil_socket_t fd, short event, void *arg);
 
@@ -67,6 +68,8 @@ static void logit()
 	}
 
 	TEMP_FAILURE_RETRY(close(fd));
+
+	g_lastlog = now;
 }
 
 static int ble_setup()
@@ -83,6 +86,7 @@ static int ble_setup()
 	}
 
 	ioctl(hci_socket, HCIDEVDOWN, hci_device_id);
+	ioctl(hci_socket, HCIDEVRESET, hci_device_id);
 
 	/* FIXME: should we set non-blocking mode on hci socket? */
 	struct hci_filter new_filter;
@@ -165,6 +169,13 @@ static void process_req(struct evhttp_request *req, void *arg)
 {
 	if (!isfinite(temperature)) {
 		evhttp_send_error(req, HTTP_SERVUNAVAIL, "Not ready");
+		return;
+	}
+	
+	time_t now = time(NULL);
+
+	if (g_lastlog < now - 15*60) {
+		evhttp_send_error(req, HTTP_SERVUNAVAIL, "Stale");
 		return;
 	}
 
