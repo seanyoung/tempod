@@ -153,7 +153,8 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 				leAdvertisingInfo->data[1] != 0xff)
 		return;
 
-	temperature = (double)leAdvertisingInfo->data[5] / 10.0;
+	temperature = (leAdvertisingInfo->data[5] +
+		leAdvertisingInfo->data[6] * 256) / 10.0;
 	humidity =  leAdvertisingInfo->data[11];
 	pressure =  leAdvertisingInfo->data[12] +
 			leAdvertisingInfo->data[13] * 256;
