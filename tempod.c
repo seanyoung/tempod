@@ -132,6 +132,7 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 {
 	unsigned char hciEventBuf[HCI_MAX_EVENT_SIZE];
 	int hciEventLen;
+	int16_t temp;
 	evt_le_meta_event *leMetaEvent;
 	le_advertising_info *leAdvertisingInfo;
 	
@@ -148,15 +149,24 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 
 	leAdvertisingInfo = (le_advertising_info *)(leMetaEvent->data + 1);
 
+#if 0
+	int i;
+	for (i=0; i<hciEventLen; i++)
+		printf("%02x ", leAdvertisingInfo->data[i]);
+
+	printf("\n");
+#endif
+
 	if (leAdvertisingInfo->length < 16 || 
 				leAdvertisingInfo->data[0] != 0x0f ||
 				leAdvertisingInfo->data[1] != 0xff)
 		return;
 
-	temperature = (leAdvertisingInfo->data[5] +
-		leAdvertisingInfo->data[6] * 256) / 10.0;
-	humidity =  leAdvertisingInfo->data[11];
-	pressure =  leAdvertisingInfo->data[12] +
+	temp = leAdvertisingInfo->data[5] +
+		leAdvertisingInfo->data[6] * 256;
+	temperature  = temp / 10.0;
+	humidity = leAdvertisingInfo->data[11];
+	pressure = leAdvertisingInfo->data[12] +
 			leAdvertisingInfo->data[13] * 256;
 
 	// stop scanning
