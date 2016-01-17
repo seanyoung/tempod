@@ -27,6 +27,8 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
+#include <systemd/sd-daemon.h>
+
 #define SERVER_NAME	"tempod/0.1-git" GIT_COMMIT
 
 static double temperature = INFINITY;
@@ -164,7 +166,7 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 
 	temp = leAdvertisingInfo->data[5] +
 		leAdvertisingInfo->data[6] * 256;
-	temperature  = temp / 10.0;
+	temperature = temp / 10.0;
 	humidity = leAdvertisingInfo->data[11];
 	pressure = leAdvertisingInfo->data[12] +
 			leAdvertisingInfo->data[13] * 256;
@@ -204,13 +206,40 @@ static void process_req(struct evhttp_request *req, void *arg)
 	evbuffer_free(buf);
 }
 
-int create_http(int port)
+static int create_http(int port)
 {
-	struct evhttp *httpd = evhttp_new(g_base);
+	struct evhttp *httpd;
+	int i, n;
+
+	httpd = evhttp_new(g_base);
 	if (httpd == NULL)
 		return ENOMEM;
 
-	if (evhttp_bind_socket(httpd, "::", port)) {
+	n = sd_listen_fds(0);
+	for (i=0; i<n; i++) {
+		int rc, flags, fd = SD_LISTEN_FDS_START + i;
+		flags = fcntl(fd, F_GETFL, 0);
+		if (flags < 0) {
+			rc = errno;
+			syslog(LOG_WARNING, "warning: fcntl failed on systemd socket: %m");
+			evhttp_free(httpd);
+			return rc;
+		}
+
+		if (fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
+			rc = errno;
+			syslog(LOG_WARNING, "warning: fcntl failed on systemd socket: %m");
+			evhttp_free(httpd);
+			return rc;
+		}
+
+		if (evhttp_accept_socket(httpd, fd)) {
+			evhttp_free(httpd);
+			syslog(LOG_WARNING, "warning: failed to add systemd socket");
+			return EINVAL;
+		}
+	}
+	if (port > 0 && evhttp_bind_socket(httpd, "::", port)) {
 		evhttp_free(httpd);
 		return errno;
 	}
@@ -223,14 +252,14 @@ int create_http(int port)
 int main(int argc, char *argv[])
 {
 	int rc, port = 80;
-	bool daemonize = true;
+	bool daemonize = false;
 
 	opterr = 0;
 
 	while ((rc = getopt(argc, argv, "hdp:")) != -1) {
 		switch (rc) {
 		case 'd':
-			daemonize = false;
+			daemonize = true;
 			break;
 		case 'p':
 			port = atoi(optarg);
