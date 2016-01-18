@@ -164,6 +164,12 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 				leAdvertisingInfo->data[1] != 0xff)
 		return;
 
+	// just after restarting the tempod readings might all be zero
+	if (!leAdvertisingInfo->data[5] && !leAdvertisingInfo->data[6] &&
+	    !leAdvertisingInfo->data[11] && !leAdvertisingInfo->data[12] &&
+	    !leAdvertisingInfo->data[13])
+		return;
+
 	temp = leAdvertisingInfo->data[5] +
 		leAdvertisingInfo->data[6] * 256;
 	temperature = temp / 10.0;
@@ -251,7 +257,7 @@ static int create_http(int port)
 
 int main(int argc, char *argv[])
 {
-	int rc, port = 80;
+	int rc, port = -1;
 	bool daemonize = false;
 
 	opterr = 0;
