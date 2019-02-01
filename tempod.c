@@ -31,8 +31,7 @@
 
 #define SERVER_NAME	"tempod/0.1-git" GIT_COMMIT
 
-static double temperature = INFINITY;
-static unsigned pressure, humidity;
+static double temperature = INFINITY, humidity;
 static int hci_socket;
 static struct event *g_evtime;
 static struct event_base *g_base;
@@ -49,7 +48,7 @@ static void logit()
 	char buf[100];
 	size_t size;
 
-	size = snprintf(buf, sizeof(buf), "%ld,%.1f,%d,%d\n", now, temperature,humidity,pressure);
+	size = snprintf(buf, sizeof(buf), "%ld,%.1f,%.1f\n", now, temperature,humidity);
 
 	int fd = TEMP_FAILURE_RETRY(open(g_statsfile, O_APPEND|O_CREAT|O_WRONLY|O_CLOEXEC, 0644));
 	if (fd == -1) {
@@ -120,7 +119,7 @@ static int ble_setup()
 
 static void ble_start_scan(evutil_socket_t fd, short event, void *arg)
 {
-	if (!foundtempod) 
+	if (!foundtempod)
 		syslog(LOG_WARNING, "warning: no response from tempod device");
 
 	foundtempod = false;
@@ -151,7 +150,7 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 
 	leAdvertisingInfo = (le_advertising_info *)(leMetaEvent->data + 1);
 
-	if (leAdvertisingInfo->length < 16 || 
+	if (leAdvertisingInfo->length < 16 ||
 				leAdvertisingInfo->data[5] != 0x33 ||
 				leAdvertisingInfo->data[6] != 0x01)
 		return;
@@ -175,8 +174,9 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 	temp = leAdvertisingInfo->data[14] +
 		leAdvertisingInfo->data[13] * 256;
 	temperature = temp / 10.0;
-	humidity = leAdvertisingInfo->data[16] +
+	temp = leAdvertisingInfo->data[16] +
 		leAdvertisingInfo->data[15] * 256;
+	humidity = temp / 10.0;
 
 	// stop scanning
 	hci_le_set_scan_enable(hci_socket, 0x00, 1, 1000);
@@ -202,9 +202,8 @@ static void process_req(struct evhttp_request *req, void *arg)
 	struct evbuffer *buf = evbuffer_new();
 
 	evbuffer_add_printf(buf, "{ \"temperature\": %.1f, "
-				"\"humidity\": %u, "
-				"\"pressure\": %u }\n",
-			temperature, humidity, pressure);
+				"\"humidity\": %.1f }\n",
+				temperature, humidity);
 
 	evhttp_add_header(req->output_headers, "Server", SERVER_NAME);
 	evhttp_add_header(req->output_headers, "Content-Type", "application/json");
