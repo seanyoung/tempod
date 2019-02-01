@@ -104,7 +104,7 @@ static int ble_setup()
 		return -1;
 	}
 
-	if (hci_le_set_scan_parameters(hci_socket, 0x01, htobs(0x0010), htobs(0x0010), 0x00, 0, 1000) < 0) {
+	if (hci_le_set_scan_parameters(hci_socket, 0x00, htobs(0x0010), htobs(0x0010), 0x00, 0, 1000) < 0) {
 		printf("error: Cannot set le scan parameters: %m");
 		close(hci_socket);
 		return -1;
@@ -151,31 +151,32 @@ static void ble_read(evutil_socket_t fd, short event, void *arg)
 
 	leAdvertisingInfo = (le_advertising_info *)(leMetaEvent->data + 1);
 
+	if (leAdvertisingInfo->length < 16 || 
+				leAdvertisingInfo->data[5] != 0x33 ||
+				leAdvertisingInfo->data[6] != 0x01)
+		return;
+
 #if 0
 	int i;
-	for (i=0; i<hciEventLen; i++)
+	for (i=13; i<17; i++)
 		printf("%02x ", leAdvertisingInfo->data[i]);
 
 	printf("\n");
 #endif
 
-	if (leAdvertisingInfo->length < 16 || 
-				leAdvertisingInfo->data[0] != 0x0f ||
-				leAdvertisingInfo->data[1] != 0xff)
-		return;
-
 	// just after restarting the tempod readings might all be zero
+	/*
 	if (!leAdvertisingInfo->data[5] && !leAdvertisingInfo->data[6] &&
 	    !leAdvertisingInfo->data[11] && !leAdvertisingInfo->data[12] &&
 	    !leAdvertisingInfo->data[13])
 		return;
+*/
 
-	temp = leAdvertisingInfo->data[5] +
-		leAdvertisingInfo->data[6] * 256;
+	temp = leAdvertisingInfo->data[14] +
+		leAdvertisingInfo->data[13] * 256;
 	temperature = temp / 10.0;
-	humidity = leAdvertisingInfo->data[11];
-	pressure = leAdvertisingInfo->data[12] +
-			leAdvertisingInfo->data[13] * 256;
+	humidity = leAdvertisingInfo->data[16] +
+		leAdvertisingInfo->data[15] * 256;
 
 	// stop scanning
 	hci_le_set_scan_enable(hci_socket, 0x00, 1, 1000);
